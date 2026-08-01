@@ -18,3 +18,4 @@ class Machine(BaseModel):
     tasks = relationship("Task", back_populates="machine")
     incidents = relationship("Incident", back_populates="machine")
     sensor_readings = relationship("SensorReading", back_populates="machine", cascade="all, delete-orphan")
+    sops = relationship("Procedure", secondary="machine_sop_association", back_populates="machines")

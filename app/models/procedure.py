@@ -1,6 +1,13 @@
-from sqlalchemy import Column, String, Boolean, Integer, Text, ForeignKey
+from sqlalchemy import Column, String, Boolean, Integer, Text, ForeignKey, Table
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
+
+machine_sop_association = Table(
+    "machine_sop_association",
+    BaseModel.metadata,
+    Column("machine_id", Integer, ForeignKey("machines.id", ondelete="CASCADE"), primary_key=True),
+    Column("procedure_id", Integer, ForeignKey("procedures.id", ondelete="CASCADE"), primary_key=True)
+)
 
 class Procedure(BaseModel):
     __tablename__ = "procedures"
@@ -15,6 +22,7 @@ class Procedure(BaseModel):
 
     steps = relationship("ProcedureStep", back_populates="procedure", cascade="all, delete-orphan", order_by="ProcedureStep.step_number")
     tasks = relationship("Task", back_populates="procedure")
+    machines = relationship("Machine", secondary=machine_sop_association, back_populates="sops")
 
 class ProcedureStep(BaseModel):
     __tablename__ = "procedure_steps"

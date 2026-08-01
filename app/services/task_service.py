@@ -51,4 +51,32 @@ class TaskService:
         task_repository.create_history(db, task.id, prev_status, new_status, worker_id, notes)
         return task
 
+    def complete_task(self, db: Session, task_id: int, worker_id: int, steps_completed: str = "All steps executed", notes: str = None) -> Optional[Task]:
+        task = task_repository.get(db, task_id)
+        if not task:
+            return None
+        
+        prev_status = task.status
+        task.status = "COMPLETED"
+        db.commit()
+        db.refresh(task)
+
+        task_repository.create_history(db, task.id, prev_status, "COMPLETED", worker_id, notes or "Task marked completed.")
+
+        # Log into AuditLog
+        from app.models.audit_log import AuditLog
+        audit_entry = AuditLog(
+            worker_id=worker_id or task.worker_id,
+            machine_id=task.machine_id,
+            procedure_id=task.procedure_id,
+            task_id=task.id,
+            steps_completed=steps_completed,
+            status="COMPLETED",
+            notes=notes or "SOP procedure steps verified & completed."
+        )
+        db.add(audit_entry)
+        db.commit()
+
+        return task
+
 task_service = TaskService()

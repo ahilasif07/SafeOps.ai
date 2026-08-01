@@ -10,6 +10,7 @@ from app.models.incident import Incident
 from app.models.sensor import SensorReading
 from app.models.supervisor import SupervisorApproval
 from app.models.task import Task
+from app.models.audit_log import AuditLog
 from app.auth.security import get_password_hash
 from app.ai.sop_retriever import SOPRetriever
 from app.utils.logger import logger

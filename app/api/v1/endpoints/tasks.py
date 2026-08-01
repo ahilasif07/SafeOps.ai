@@ -31,3 +31,10 @@ def update_task_status(task_id: int, status_name: str, worker_id: int, notes: st
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+@router.put("/{task_id}/complete", response_model=TaskOut, summary="Complete task and record audit log")
+def complete_task(task_id: int, worker_id: int, steps_completed: str = "All steps executed", notes: str = None, db: Session = Depends(get_db)):
+    task = task_service.complete_task(db, task_id, worker_id, steps_completed=steps_completed, notes=notes)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task

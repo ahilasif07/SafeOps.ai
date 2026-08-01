@@ -20,4 +20,29 @@ class MachineService:
             return None
         return machine_repository.update(db, machine, machine_in.dict(exclude_unset=True))
 
+    def delete_machine(self, db: Session, machine_id: int) -> bool:
+        machine = machine_repository.get(db, machine_id)
+        if not machine:
+            return False
+        db.delete(machine)
+        db.commit()
+        return True
+
+    def assign_sop(self, db: Session, machine_id: int, procedure_id: int) -> bool:
+        from app.models.procedure import Procedure
+        machine = machine_repository.get(db, machine_id)
+        procedure = db.query(Procedure).filter(Procedure.id == procedure_id).first()
+        if not machine or not procedure:
+            return False
+        if procedure not in machine.sops:
+            machine.sops.append(procedure)
+            db.commit()
+        return True
+
+    def get_machine_sops(self, db: Session, machine_id: int):
+        machine = machine_repository.get(db, machine_id)
+        if not machine:
+            return None
+        return machine.sops
+
 machine_service = MachineService()

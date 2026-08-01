@@ -35,6 +35,8 @@ import { Worker, Machine, Procedure, Task, Incident, SupervisorApproval, SensorR
 import { CustomSelect } from './components/CustomSelect';
 import { SopModal } from './components/SopModal';
 import { SopDetailModal } from './components/SopDetailModal';
+import { MachineModal } from './components/MachineModal';
+import { WorkerModal } from './components/WorkerModal';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'machines' | 'sops' | 'workers' | 'approvals' | 'incidents'>('overview');
@@ -53,6 +55,10 @@ export default function App() {
   const [showSopModal, setShowSopModal] = useState(false);
   const [sopToEdit, setSopToEdit] = useState<Procedure | null>(null);
   const [sopToView, setSopToView] = useState<Procedure | null>(null);
+
+  // Machine & Worker Creation Modals
+  const [showMachineModal, setShowMachineModal] = useState(false);
+  const [showWorkerModal, setShowWorkerModal] = useState(false);
   
   // AI SOP Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -222,7 +228,7 @@ export default function App() {
         </div>
 
         {/* Worker Switcher & System Indicators */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 text-xs">
             <span className="text-slate-400 font-medium hidden sm:inline">Active Worker:</span>
             <CustomSelect
@@ -237,6 +243,14 @@ export default function App() {
               className="w-56"
               icon={<UserCheck className="w-4 h-4 text-amber-400 shrink-0" />}
             />
+            <button
+              onClick={() => setShowWorkerModal(true)}
+              className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold px-2.5 py-2 rounded-xl text-xs flex items-center gap-1 transition"
+              title="Add New Worker Profile"
+            >
+              <Plus className="w-3.5 h-3.5 stroke-[3]" />
+              <span className="hidden lg:inline">Worker</span>
+            </button>
           </div>
 
           <div className="hidden sm:flex items-center gap-2 text-xs bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-lg">
@@ -554,9 +568,19 @@ export default function App() {
               {/* TAB 3: MACHINERY & IOT SENSORS */}
               {activeTab === 'machines' && (
                 <div className="space-y-6">
-                  <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-slate-100">Industrial Machinery & Telemetry</h1>
-                    <p className="text-slate-400 text-sm mt-1">Monitor real-time machine safety ratings and trigger IoT sensor simulations.</p>
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div>
+                      <h1 className="text-2xl font-bold tracking-tight text-slate-100">Industrial Machinery & Telemetry</h1>
+                      <p className="text-slate-400 text-sm mt-1">Monitor real-time machine safety ratings and trigger IoT sensor simulations.</p>
+                    </div>
+
+                    <button
+                      onClick={() => setShowMachineModal(true)}
+                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all text-sm"
+                    >
+                      <Plus className="w-4 h-4 stroke-[3]" />
+                      <span>Register New Machine</span>
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -804,9 +828,19 @@ export default function App() {
               {/* TAB 5: WORKERS & CERTIFICATIONS */}
               {activeTab === 'workers' && (
                 <div className="space-y-6">
-                  <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-slate-100">Worker Registry & Safety Credentials</h1>
-                    <p className="text-slate-400 text-sm mt-1">Verification of industrial clearance levels, LOTO qualification, and training record expirations.</p>
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div>
+                      <h1 className="text-2xl font-bold tracking-tight text-slate-100">Worker Registry & Safety Credentials</h1>
+                      <p className="text-slate-400 text-sm mt-1">Verification of industrial clearance levels, LOTO qualification, and training record expirations.</p>
+                    </div>
+
+                    <button
+                      onClick={() => setShowWorkerModal(true)}
+                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all text-sm"
+                    >
+                      <Plus className="w-4 h-4 stroke-[3]" />
+                      <span>Add Worker Profile</span>
+                    </button>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -980,7 +1014,17 @@ export default function App() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Target Machine</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-400">Target Machine</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowMachineModal(true)}
+                      className="text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3 stroke-[3]" />
+                      <span>Add Machine</span>
+                    </button>
+                  </div>
                   <CustomSelect
                     value={newTaskMachineId}
                     onChange={(val) => setNewTaskMachineId(Number(val))}
@@ -995,7 +1039,20 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Standard Operating Procedure</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-medium text-slate-400">Standard Operating Procedure</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSopToEdit(null);
+                        setShowSopModal(true);
+                      }}
+                      className="text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1"
+                    >
+                      <Plus className="w-3 h-3 stroke-[3]" />
+                      <span>Add SOP</span>
+                    </button>
+                  </div>
                   <CustomSelect
                     value={newTaskProcedureId}
                     onChange={(val) => setNewTaskProcedureId(Number(val))}
@@ -1101,6 +1158,20 @@ export default function App() {
           setSopToEdit(proc);
           setShowSopModal(true);
         }}
+      />
+
+      {/* Register Machine Modal */}
+      <MachineModal
+        isOpen={showMachineModal}
+        onClose={() => setShowMachineModal(false)}
+        onSaveSuccess={fetchInitialData}
+      />
+
+      {/* Register Worker Modal */}
+      <WorkerModal
+        isOpen={showWorkerModal}
+        onClose={() => setShowWorkerModal(false)}
+        onSaveSuccess={fetchInitialData}
       />
     </div>
   );

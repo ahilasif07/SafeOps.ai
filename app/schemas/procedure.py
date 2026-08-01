@@ -49,3 +49,11 @@ class ProcedureOut(ProcedureBase):
 
     class Config:
         from_attributes = True
+
+class SopAssignmentRequest(BaseModel):
+    procedure_id: int
+
+class SopAssignmentResponse(BaseModel):
+    machine_id: int
+    procedure_id: int
+    message: str = "SOP assigned to machine successfully"

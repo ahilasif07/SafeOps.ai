@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
 from app.database.session import get_db
@@ -14,6 +14,13 @@ def get_procedures(skip: int = 0, limit: int = 100, db: Session = Depends(get_db
 @router.post("/", response_model=ProcedureOut, status_code=status.HTTP_201_CREATED, summary="Create approved SOP with hazard steps")
 def create_procedure(procedure_in: ProcedureCreate, db: Session = Depends(get_db)):
     return procedure_service.create_procedure(db, procedure_in)
+
+@router.post("/upload-pdf", response_model=ProcedureOut, status_code=status.HTTP_201_CREATED, summary="Upload & extract SOP steps from PDF")
+async def upload_pdf_sop(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not file.filename.lower().endswith((".pdf", ".txt", ".doc", ".docx")):
+        raise HTTPException(status_code=400, detail="Only PDF and text document files are supported")
+    content = await file.read()
+    return procedure_service.parse_pdf_and_create_sop(db, content, file.filename)
 
 @router.get("/{procedure_id}", response_model=ProcedureOut, summary="Get SOP by ID")
 def get_procedure(procedure_id: int, db: Session = Depends(get_db)):
