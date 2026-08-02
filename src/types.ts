@@ -131,3 +131,60 @@ export interface SafetyEvalResponse {
     loto_compliance: boolean;
   };
 }
+
+export interface IssueComment {
+  id: number;
+  issue_id: number;
+  author_id?: number;
+  author_name: string;
+  comment_text: string;
+  created_at: string;
+  author?: Worker;
+}
+
+export interface IssueAttachment {
+  id: number;
+  issue_id: number;
+  file_name: string;
+  file_url: string;
+  file_type: string;
+  uploaded_at: string;
+}
+
+export interface IssueStatusHistory {
+  id: number;
+  issue_id: number;
+  changed_by_id?: number;
+  from_status: string;
+  to_status: string;
+  notes?: string;
+  changed_at: string;
+  changed_by?: Worker;
+}
+
+export interface Issue {
+  id: number;
+  issue_code: string;
+  title: string;
+  description: string;
+  machine_id?: number;
+  department: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  status: 'Open' | 'In Progress' | 'Waiting' | 'Resolved' | 'Closed';
+  reporter_id?: number;
+  assigned_worker_id?: number;
+  assigned_supervisor_id?: number;
+  due_date?: string;
+  resolution?: string;
+  resolution_time?: string;
+  created_at: string;
+  updated_at: string;
+  machine?: Machine;
+  reporter?: Worker;
+  assigned_worker?: Worker;
+  assigned_supervisor?: Worker;
+  comments: IssueComment[];
+  attachments: IssueAttachment[];
+  status_history: IssueStatusHistory[];
+}
+

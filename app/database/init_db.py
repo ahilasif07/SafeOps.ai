@@ -11,6 +11,7 @@ from app.models.sensor import SensorReading
 from app.models.supervisor import SupervisorApproval
 from app.models.task import Task
 from app.models.audit_log import AuditLog
+from app.models.issue import Issue, IssueComment, IssueAttachment, IssueStatusHistory
 from app.auth.security import get_password_hash
 from app.ai.sop_retriever import SOPRetriever
 from app.utils.logger import logger
@@ -97,6 +98,48 @@ def init_db():
     # 7. Incidents
     inc1 = Incident(incident_code="INC-2026-001", title="Over-pressurization Alarm on Reactor 2", description="Pressure spiked to 145 PSI during chemical batching process.", severity="HIGH", machine_id=m3.id, reported_at=now - datetime.timedelta(days=5), resolution_status="UNDER_INVESTIGATION")
     db.add(inc1)
+    db.commit()
+
+    # 8. Issues
+    issue1 = Issue(
+        issue_code="ISS-2026-001",
+        title="Hydraulic Seal Leak on Stamping Press 4",
+        description="Persistent hydraulic fluid leak around piston rod gland packing. Requires immediate seal replacement.",
+        machine_id=m2.id,
+        department="MECHANICAL",
+        priority="HIGH",
+        status="In Progress",
+        reporter_id=w1.id,
+        assigned_worker_id=w3.id,
+        assigned_supervisor_id=w2.id,
+        due_date=now + datetime.timedelta(days=2)
+    )
+    db.add(issue1)
+    db.commit()
+
+    c1 = IssueComment(issue_id=issue1.id, author_id=w1.id, author_name=w1.full_name, comment_text="Noticed oil residue accumulating during morning shift inspection.")
+    c2 = IssueComment(issue_id=issue1.id, author_id=w3.id, author_name=w3.full_name, comment_text="Ordered replacement seal kit SK-1000T. Scheduled maintenance window.")
+    a1 = IssueAttachment(issue_id=issue1.id, file_name="seal_leak_photo.jpg", file_url="https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80", file_type="image")
+    sh1 = IssueStatusHistory(issue_id=issue1.id, changed_by_id=w1.id, from_status="CREATED", to_status="Open", notes="Issue logged")
+    sh2 = IssueStatusHistory(issue_id=issue1.id, changed_by_id=w2.id, from_status="Open", to_status="In Progress", notes="Assigned to Mike Vance for replacement.")
+
+    issue2 = Issue(
+        issue_code="ISS-2026-002",
+        title="Gas Turbine Alpha Vibration Sensor Calibration",
+        description="Sensor VIB-01 showing minor baseline drift during warm-up cycle.",
+        machine_id=m1.id,
+        department="ELECTRICAL",
+        priority="LOW",
+        status="Open",
+        reporter_id=w2.id,
+        assigned_worker_id=w1.id,
+        assigned_supervisor_id=w2.id,
+        due_date=now + datetime.timedelta(days=5)
+    )
+    db.add(issue2)
+    db.commit()
+
+    db.add_all([c1, c2, a1, sh1, sh2])
     db.commit()
 
     db.close()

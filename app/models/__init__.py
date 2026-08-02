@@ -8,6 +8,7 @@ from app.models.sensor import SensorReading
 from app.models.supervisor import SupervisorApproval
 from app.models.task import Task, TaskHistory
 from app.models.audit_log import AuditLog
+from app.models.issue import Issue, IssueComment, IssueAttachment, IssueStatusHistory
 
 __all__ = [
     "Base",
@@ -25,4 +26,8 @@ __all__ = [
     "Task",
     "TaskHistory",
     "AuditLog",
+    "Issue",
+    "IssueComment",
+    "IssueAttachment",
+    "IssueStatusHistory",
 ]

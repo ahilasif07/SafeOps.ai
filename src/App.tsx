@@ -29,17 +29,25 @@ import {
   Award,
   Edit3,
   Eye,
-  Upload
+  Upload,
+  Bug,
+  MessageSquare,
+  Paperclip,
+  Building2,
+  Calendar,
+  Filter
 } from 'lucide-react';
-import { Worker, Machine, Procedure, Task, Incident, SupervisorApproval, SensorReading, SafetyEvalResponse } from './types';
+import { Worker, Machine, Procedure, Task, Incident, SupervisorApproval, SensorReading, SafetyEvalResponse, Issue } from './types';
 import { CustomSelect } from './components/CustomSelect';
 import { SopModal } from './components/SopModal';
 import { SopDetailModal } from './components/SopDetailModal';
 import { MachineModal } from './components/MachineModal';
 import { WorkerModal } from './components/WorkerModal';
+import { IssueCreateModal } from './components/IssueCreateModal';
+import { IssueDetailModal } from './components/IssueDetailModal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'machines' | 'sops' | 'workers' | 'approvals' | 'incidents'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'tasks' | 'machines' | 'sops' | 'workers' | 'approvals' | 'incidents' | 'issues'>('overview');
   
   // App State from API
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -48,8 +56,20 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [approvals, setApprovals] = useState<SupervisorApproval[]>([]);
+  const [issues, setIssues] = useState<Issue[]>([]);
   const [selectedWorkerId, setSelectedWorkerId] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
+  
+  // Issue Tracker State
+  const [showIssueCreateModal, setShowIssueCreateModal] = useState(false);
+  const [selectedIssueForDetail, setSelectedIssueForDetail] = useState<Issue | null>(null);
+  
+  // Issue Filter State
+  const [issueFilterMachine, setIssueFilterMachine] = useState<string>('ALL');
+  const [issueFilterDepartment, setIssueFilterDepartment] = useState<string>('ALL');
+  const [issueFilterPriority, setIssueFilterPriority] = useState<string>('ALL');
+  const [issueFilterWorker, setIssueFilterWorker] = useState<string>('ALL');
+  const [issueFilterStatus, setIssueFilterStatus] = useState<string>('ALL');
   
   // SOP Modals State
   const [showSopModal, setShowSopModal] = useState(false);
@@ -82,6 +102,35 @@ export default function App() {
     fetchInitialData();
   }, []);
 
+  useEffect(() => {
+    fetchIssues();
+  }, [issueFilterMachine, issueFilterDepartment, issueFilterPriority, issueFilterWorker, issueFilterStatus]);
+
+  const fetchIssues = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (issueFilterMachine !== 'ALL') params.append('machine_id', issueFilterMachine);
+      if (issueFilterDepartment !== 'ALL') params.append('department', issueFilterDepartment);
+      if (issueFilterPriority !== 'ALL') params.append('priority', issueFilterPriority);
+      if (issueFilterWorker !== 'ALL') params.append('worker_id', issueFilterWorker);
+      if (issueFilterStatus !== 'ALL') params.append('status', issueFilterStatus);
+
+      const res = await fetch(`/api/v1/issues/?${params.toString()}`);
+      const data = await res.json();
+      setIssues(Array.isArray(data) ? data : []);
+
+      // Refresh selected issue if detail modal is open
+      if (selectedIssueForDetail) {
+        const updatedDetail = data.find((iss: Issue) => iss.id === selectedIssueForDetail.id);
+        if (updatedDetail) {
+          setSelectedIssueForDetail(updatedDetail);
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching issues:', err);
+    }
+  };
+
   const fetchInitialData = async () => {
     setLoading(true);
     try {
@@ -101,6 +150,8 @@ export default function App() {
       setIncidents(Array.isArray(iRes) ? iRes : []);
       setApprovals(Array.isArray(aRes) ? aRes : []);
       
+      await fetchIssues();
+
       if (Array.isArray(wRes) && wRes.length > 0) {
         setSelectedWorkerId(wRes[0].id);
       }
@@ -348,6 +399,19 @@ export default function App() {
               <span>Incidents Log</span>
             </div>
             <span className="bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded-full">{incidents.length}</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('issues')}
+            className={`flex items-center justify-between px-4 py-3 rounded-xl font-medium text-sm transition-all ${
+              activeTab === 'issues' ? 'bg-amber-500 text-slate-950 font-semibold shadow-lg shadow-amber-500/10' : 'text-slate-400 hover:bg-slate-900 hover:text-slate-200'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Bug className="w-4 h-4" />
+              <span>Issue Tracker</span>
+            </div>
+            <span className="bg-slate-800 text-slate-300 text-xs px-2 py-0.5 rounded-full">{issues.length}</span>
           </button>
         </nav>
 
@@ -968,6 +1032,201 @@ export default function App() {
                   </div>
                 </div>
               )}
+
+              {/* TAB 8: ISSUE TRACKER */}
+              {activeTab === 'issues' && (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between flex-wrap gap-4">
+                    <div>
+                      <h1 className="text-2xl font-bold tracking-tight text-slate-100">Industrial Issue Tracking</h1>
+                      <p className="text-slate-400 text-sm mt-1">
+                        Relational issue management for operational faults, machine defects, and maintenance tracking.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => setShowIssueCreateModal(true)}
+                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all text-sm"
+                    >
+                      <Plus className="w-4 h-4 stroke-[3]" />
+                      <span>Log New Issue</span>
+                    </button>
+                  </div>
+
+                  {/* Filter Bar */}
+                  <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      <Filter className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Filter Issues By:</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Machine</label>
+                        <select
+                          value={issueFilterMachine}
+                          onChange={e => setIssueFilterMachine(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                        >
+                          <option value="ALL">All Machines</option>
+                          {machines.map(m => (
+                            <option key={m.id} value={m.id}>{m.name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Department</label>
+                        <select
+                          value={issueFilterDepartment}
+                          onChange={e => setIssueFilterDepartment(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                        >
+                          <option value="ALL">All Departments</option>
+                          <option value="PLANT_OPS">PLANT_OPS</option>
+                          <option value="ELECTRICAL">ELECTRICAL</option>
+                          <option value="MECHANICAL">MECHANICAL</option>
+                          <option value="SAFETY_DEPT">SAFETY_DEPT</option>
+                          <option value="CHEMICAL">CHEMICAL</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Priority</label>
+                        <select
+                          value={issueFilterPriority}
+                          onChange={e => setIssueFilterPriority(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                        >
+                          <option value="ALL">All Priorities</option>
+                          <option value="LOW">LOW</option>
+                          <option value="MEDIUM">MEDIUM</option>
+                          <option value="HIGH">HIGH</option>
+                          <option value="CRITICAL">CRITICAL</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Worker</label>
+                        <select
+                          value={issueFilterWorker}
+                          onChange={e => setIssueFilterWorker(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                        >
+                          <option value="ALL">All Assigned Workers</option>
+                          {workers.map(w => (
+                            <option key={w.id} value={w.id}>{w.full_name}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Status</label>
+                        <select
+                          value={issueFilterStatus}
+                          onChange={e => setIssueFilterStatus(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                        >
+                          <option value="ALL">All Statuses</option>
+                          <option value="Open">Open</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Waiting">Waiting</option>
+                          <option value="Resolved">Resolved</option>
+                          <option value="Closed">Closed</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Issues List / Cards */}
+                  <div className="space-y-4">
+                    {issues.length === 0 ? (
+                      <div className="p-12 text-center bg-slate-900 border border-slate-800 rounded-2xl space-y-3">
+                        <Bug className="w-10 h-10 text-slate-600 mx-auto" />
+                        <h3 className="text-base font-bold text-slate-300">No Issues Found</h3>
+                        <p className="text-xs text-slate-500 max-w-md mx-auto">
+                          No issues match the selected filter criteria. Adjust filters or click "Log New Issue" to record an issue.
+                        </p>
+                      </div>
+                    ) : (
+                      issues.map(issue => (
+                        <div 
+                          key={issue.id} 
+                          onClick={() => setSelectedIssueForDetail(issue)}
+                          className="bg-slate-900 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-5 space-y-3 cursor-pointer transition group shadow-sm hover:shadow-md"
+                        >
+                          <div className="flex items-center justify-between flex-wrap gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs text-amber-400 font-bold bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+                                {issue.issue_code}
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                                issue.priority === 'CRITICAL' ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' :
+                                issue.priority === 'HIGH' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                                issue.priority === 'MEDIUM' ? 'bg-blue-500/20 text-blue-300 border-blue-500/40' :
+                                'bg-slate-800 text-slate-300 border-slate-700'
+                              }`}>
+                                {issue.priority}
+                              </span>
+                            </div>
+
+                            <span className={`text-xs font-bold px-3 py-1 rounded-full border ${
+                              issue.status === 'Open' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                              issue.status === 'In Progress' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                              issue.status === 'Waiting' ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' :
+                              issue.status === 'Resolved' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' :
+                              'bg-slate-800 text-slate-400 border-slate-700'
+                            }`}>
+                              {issue.status}
+                            </span>
+                          </div>
+
+                          <div>
+                            <h3 className="text-base font-bold text-slate-100 group-hover:text-amber-300 transition">
+                              {issue.title}
+                            </h3>
+                            <p className="text-xs text-slate-400 line-clamp-2 mt-1">
+                              {issue.description}
+                            </p>
+                          </div>
+
+                          <div className="pt-3 border-t border-slate-800/80 flex items-center justify-between flex-wrap gap-3 text-xs text-slate-400">
+                            <div className="flex items-center gap-4 flex-wrap">
+                              <span className="flex items-center gap-1">
+                                <Radio className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span>{issue.machine ? issue.machine.name : 'General Facility'}</span>
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Building2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                <span>{issue.department}</span>
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Users className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                <span>Assigned: {issue.assigned_worker ? issue.assigned_worker.full_name : 'Unassigned'}</span>
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className="flex items-center gap-1 text-[11px] bg-slate-950 px-2 py-1 rounded-lg border border-slate-800">
+                                <MessageSquare className="w-3 h-3 text-amber-400" />
+                                <span>{issue.comments ? issue.comments.length : 0}</span>
+                              </span>
+                              <span className="flex items-center gap-1 text-[11px] bg-slate-950 px-2 py-1 rounded-lg border border-slate-800">
+                                <Paperclip className="w-3 h-3 text-amber-400" />
+                                <span>{issue.attachments ? issue.attachments.length : 0}</span>
+                              </span>
+                              <span className="text-[11px] text-amber-400 font-bold group-hover:underline flex items-center gap-1">
+                                <span>Details</span>
+                                <ChevronRight className="w-3 h-3" />
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </main>
@@ -1144,7 +1403,7 @@ export default function App() {
         }}
         procedureToEdit={sopToEdit}
         onSaveSuccess={() => {
-          fetchData();
+          fetchInitialData();
           if (searchQuery) handleSOPSearch();
         }}
       />
@@ -1172,6 +1431,25 @@ export default function App() {
         isOpen={showWorkerModal}
         onClose={() => setShowWorkerModal(false)}
         onSaveSuccess={fetchInitialData}
+      />
+
+      {/* Log Issue Modal */}
+      <IssueCreateModal
+        isOpen={showIssueCreateModal}
+        onClose={() => setShowIssueCreateModal(false)}
+        onSaveSuccess={fetchIssues}
+        machines={machines}
+        workers={workers}
+        currentWorkerId={selectedWorkerId}
+      />
+
+      {/* Issue Detail Inspector Modal */}
+      <IssueDetailModal
+        issue={selectedIssueForDetail}
+        isOpen={!!selectedIssueForDetail}
+        onClose={() => setSelectedIssueForDetail(null)}
+        onRefresh={fetchIssues}
+        currentWorker={currentWorker}
       />
     </div>
   );
