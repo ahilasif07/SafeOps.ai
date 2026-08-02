@@ -207,7 +207,7 @@ export function SopModal({
     const payload = {
       procedure_code: code,
       title,
-      description,
+      description: description || `Standard Operating Procedure for ${title}`,
       category,
       required_clearance_level: clearanceLevel,
       version,
@@ -215,16 +215,16 @@ export function SopModal({
       steps: steps.map((s, idx) => ({
         step_number: idx + 1,
         title: s.title || `Step ${idx + 1}`,
-        instruction: s.instruction,
-        hazard_level: s.hazard_level,
-        requires_supervisor_signoff: s.requires_supervisor_signoff,
-        required_ppe: s.required_ppe
+        instruction: s.instruction || s.title || 'Follow standard procedure and safety protocol.',
+        hazard_level: s.hazard_level || 'LOW',
+        requires_supervisor_signoff: Boolean(s.requires_supervisor_signoff),
+        required_ppe: s.required_ppe || 'Safety Glasses, Steel Toe Boots'
       }))
     };
 
     try {
       const isEdit = Boolean(procedureToEdit);
-      const url = isEdit ? `/api/v1/procedures/${procedureToEdit?.id}` : '/api/v1/procedures/';
+      const url = isEdit ? `/api/v1/procedures/${procedureToEdit?.id}` : '/api/v1/procedures';
       const method = isEdit ? 'PUT' : 'POST';
 
       const res = await fetch(url, {
@@ -234,8 +234,15 @@ export function SopModal({
       });
 
       if (!res.ok) {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({ detail: 'Failed to save SOP' }));
         throw new Error(errData.detail || 'Failed to save SOP');
+      }
+
+      const savedProc = await res.json();
+
+      // Trigger explicit vector indexing confirmation endpoint
+      if (savedProc && savedProc.id) {
+        await fetch(`/api/v1/sop-ai/index/${savedProc.id}`, { method: 'POST' }).catch(() => {});
       }
 
       onSaveSuccess();

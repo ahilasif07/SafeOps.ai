@@ -731,16 +731,39 @@ export default function App() {
                       <p className="text-slate-400 text-sm mt-1">Vector-based semantic search & interactive SOP procedure management.</p>
                     </div>
 
-                    <button
-                      onClick={() => {
-                        setSopToEdit(null);
-                        setShowSopModal(true);
-                      }}
-                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all text-sm"
-                    >
-                      <Plus className="w-4 h-4 stroke-[3]" />
-                      <span>Upload & Create New SOP</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          setSearchingSop(true);
+                          try {
+                            const res = await fetch('/api/v1/sop-ai/reindex', { method: 'POST' });
+                            const data = await res.json();
+                            alert(data.message || 'All SOPs vector-indexed successfully!');
+                            fetchInitialData();
+                          } catch (e) {
+                            console.error('Reindex error:', e);
+                          } finally {
+                            setSearchingSop(false);
+                          }
+                        }}
+                        disabled={searchingSop}
+                        className="bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold px-3.5 py-2.5 rounded-xl flex items-center gap-2 border border-amber-500/20 transition-all text-xs"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${searchingSop ? 'animate-spin' : ''}`} />
+                        <span>Reindex SOP Vector DB</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setSopToEdit(null);
+                          setShowSopModal(true);
+                        }}
+                        className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all text-xs"
+                      >
+                        <Plus className="w-4 h-4 stroke-[3]" />
+                        <span>Upload & Create New SOP</span>
+                      </button>
+                    </div>
                   </div>
 
                   {/* Search Bar */}

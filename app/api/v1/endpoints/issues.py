@@ -4,11 +4,17 @@ from typing import List, Optional
 from app.database.session import get_db
 from app.schemas.issue import (
     IssueOut, IssueCreate, IssueUpdate, IssueStatusUpdate,
-    IssueCommentOut, IssueCommentCreate, IssueAttachmentOut, IssueAttachmentCreate
+    IssueCommentOut, IssueCommentCreate, IssueAttachmentOut, IssueAttachmentCreate,
+    DuplicateCheckRequest, DuplicateCheckResponse,
+    AssignOwnerRequest, TransferOwnershipRequest, ReassignDepartmentRequest, EscalateIssueRequest, CloseIssueRequest
 )
 from app.services.issue_service import issue_service
 
 router = APIRouter()
+
+@router.post("/check-duplicates", response_model=DuplicateCheckResponse, summary="Check for duplicate open issues using fuzzy engine")
+def check_duplicate_issues(req: DuplicateCheckRequest, db: Session = Depends(get_db)):
+    return issue_service.check_duplicates(db, req)
 
 @router.get("/", response_model=List[IssueOut], summary="List issues with filters")
 def list_issues(
@@ -82,3 +88,60 @@ def add_issue_attachment(issue_id: int, attachment_in: IssueAttachmentCreate, db
     if not attachment:
         raise HTTPException(status_code=404, detail="Issue not found")
     return attachment
+
+@router.post("/{issue_id}/assign-owner", response_model=IssueOut, summary="Assign owner to issue")
+def assign_issue_owner(issue_id: int, req: AssignOwnerRequest, db: Session = Depends(get_db)):
+    updated = issue_service.assign_owner(
+        db, issue_id=issue_id, assigned_worker_id=req.assigned_worker_id, changed_by_id=req.changed_by_id, notes=req.notes
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return updated
+
+@router.post("/{issue_id}/transfer-ownership", response_model=IssueOut, summary="Transfer issue ownership to another worker")
+def transfer_issue_ownership(issue_id: int, req: TransferOwnershipRequest, db: Session = Depends(get_db)):
+    updated = issue_service.transfer_ownership(
+        db, issue_id=issue_id, new_owner_id=req.new_owner_id, reason=req.reason, changed_by_id=req.changed_by_id
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return updated
+
+@router.post("/{issue_id}/reassign-department", response_model=IssueOut, summary="Reassign department for issue")
+def reassign_issue_department(issue_id: int, req: ReassignDepartmentRequest, db: Session = Depends(get_db)):
+    updated = issue_service.reassign_department(
+        db,
+        issue_id=issue_id,
+        new_department=req.new_department,
+        reason=req.reason,
+        new_owner_id=req.new_owner_id,
+        new_supervisor_id=req.new_supervisor_id,
+        changed_by_id=req.changed_by_id
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return updated
+
+@router.post("/{issue_id}/escalate", response_model=IssueOut, summary="Escalate issue to higher supervisor or priority")
+def escalate_issue(issue_id: int, req: EscalateIssueRequest, db: Session = Depends(get_db)):
+    updated = issue_service.escalate(
+        db,
+        issue_id=issue_id,
+        reason=req.reason,
+        new_supervisor_id=req.new_supervisor_id,
+        new_owner_id=req.new_owner_id,
+        changed_by_id=req.changed_by_id,
+        boost_priority=req.boost_priority if req.boost_priority is not None else True
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return updated
+
+@router.post("/{issue_id}/close", response_model=IssueOut, summary="Close issue with technical resolution")
+def close_issue(issue_id: int, req: CloseIssueRequest, db: Session = Depends(get_db)):
+    updated = issue_service.close_issue(
+        db, issue_id=issue_id, resolution=req.resolution, changed_by_id=req.changed_by_id, notes=req.notes
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return updated

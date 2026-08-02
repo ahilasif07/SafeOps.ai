@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, AlertTriangle, Bug, CheckCircle2, Clock, User, Cog as MachineIcon, 
-  MessageSquare, Paperclip, Send, History, Building2, Calendar, FileText, ArrowRight
+  MessageSquare, Paperclip, Send, History, Building2, Calendar, FileText, ArrowRight,
+  ShieldCheck, UserCheck, ArrowRightLeft, TrendingUp, Lock, RefreshCw, Layers
 } from 'lucide-react';
 import { Issue, Worker } from '../types';
 
@@ -20,8 +21,11 @@ export function IssueDetailModal({
   onRefresh,
   currentWorker
 }: IssueDetailModalProps) {
-  const [activeSubTab, setActiveSubTab] = useState<'comments' | 'attachments' | 'history'>('comments');
+  const [activeSubTab, setActiveSubTab] = useState<'comments' | 'attachments' | 'history' | 'ownership'>('ownership');
   
+  // Available Workers List
+  const [workersList, setWorkersList] = useState<Worker[]>([]);
+
   // Status Change State
   const [newStatus, setNewStatus] = useState<string>('');
   const [statusNotes, setStatusNotes] = useState<string>('');
@@ -38,6 +42,28 @@ export function IssueDetailModal({
   const [fileType, setFileType] = useState('document');
   const [isAddingAttachment, setIsAddingAttachment] = useState(false);
   const [showAttachForm, setShowAttachForm] = useState(false);
+
+  // Ownership Management Action States
+  const [activeAction, setActiveAction] = useState<'assign' | 'transfer' | 'reassign' | 'escalate' | 'close' | null>(null);
+  const [targetWorkerId, setTargetWorkerId] = useState<string>('');
+  const [targetSupervisorId, setTargetSupervisorId] = useState<string>('');
+  const [targetDept, setTargetDept] = useState<string>('PLANT_OPS');
+  const [actionReason, setActionReason] = useState<string>('');
+  const [boostPriority, setBoostPriority] = useState<boolean>(true);
+  const [closeResolution, setCloseResolution] = useState<string>('');
+  const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetch('/api/v1/workers')
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) setWorkersList(data);
+        })
+        .catch(err => console.error('Failed to load workers:', err));
+    }
+  }, [isOpen]);
 
   if (!isOpen || !issue) return null;
 
@@ -121,6 +147,178 @@ export function IssueDetailModal({
     }
   };
 
+  // Ownership Module API Dispatchers
+  const handleAssignOwner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetWorkerId) {
+      setActionError('Please select a worker to assign.');
+      return;
+    }
+    setIsSubmittingAction(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/v1/issues/${issue.id}/assign-owner`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assigned_worker_id: Number(targetWorkerId),
+          changed_by_id: currentWorker?.id,
+          notes: actionReason || 'Owner assigned via Ownership Module'
+        })
+      });
+      if (res.ok) {
+        setActiveAction(null);
+        setActionReason('');
+        setTargetWorkerId('');
+        onRefresh();
+      } else {
+        setActionError('Failed to assign owner.');
+      }
+    } catch (err) {
+      setActionError('Network error while assigning owner.');
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
+  const handleTransferOwnership = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetWorkerId || !actionReason.trim()) {
+      setActionError('Please select a new owner and state the reason.');
+      return;
+    }
+    setIsSubmittingAction(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/v1/issues/${issue.id}/transfer-ownership`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_owner_id: Number(targetWorkerId),
+          changed_by_id: currentWorker?.id,
+          reason: actionReason
+        })
+      });
+      if (res.ok) {
+        setActiveAction(null);
+        setActionReason('');
+        setTargetWorkerId('');
+        onRefresh();
+      } else {
+        setActionError('Failed to transfer ownership.');
+      }
+    } catch (err) {
+      setActionError('Network error while transferring ownership.');
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
+  const handleReassignDepartment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetDept || !actionReason.trim()) {
+      setActionError('Please select target department and enter reason.');
+      return;
+    }
+    setIsSubmittingAction(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/v1/issues/${issue.id}/reassign-department`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_department: targetDept,
+          new_owner_id: targetWorkerId ? Number(targetWorkerId) : undefined,
+          new_supervisor_id: targetSupervisorId ? Number(targetSupervisorId) : undefined,
+          changed_by_id: currentWorker?.id,
+          reason: actionReason
+        })
+      });
+      if (res.ok) {
+        setActiveAction(null);
+        setActionReason('');
+        setTargetWorkerId('');
+        setTargetSupervisorId('');
+        onRefresh();
+      } else {
+        setActionError('Failed to reassign department.');
+      }
+    } catch (err) {
+      setActionError('Network error while reassigning department.');
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
+  const handleEscalate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!actionReason.trim()) {
+      setActionError('Please enter escalation justification.');
+      return;
+    }
+    setIsSubmittingAction(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/v1/issues/${issue.id}/escalate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          new_supervisor_id: targetSupervisorId ? Number(targetSupervisorId) : undefined,
+          new_owner_id: targetWorkerId ? Number(targetWorkerId) : undefined,
+          changed_by_id: currentWorker?.id,
+          reason: actionReason,
+          boost_priority: boostPriority
+        })
+      });
+      if (res.ok) {
+        setActiveAction(null);
+        setActionReason('');
+        setTargetWorkerId('');
+        setTargetSupervisorId('');
+        onRefresh();
+      } else {
+        setActionError('Failed to escalate issue.');
+      }
+    } catch (err) {
+      setActionError('Network error while escalating issue.');
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
+  const handleCloseIssue = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!closeResolution.trim()) {
+      setActionError('Please provide a technical resolution summary.');
+      return;
+    }
+    setIsSubmittingAction(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/v1/issues/${issue.id}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resolution: closeResolution,
+          changed_by_id: currentWorker?.id,
+          notes: actionReason || undefined
+        })
+      });
+      if (res.ok) {
+        setActiveAction(null);
+        setCloseResolution('');
+        setActionReason('');
+        onRefresh();
+      } else {
+        setActionError('Failed to close issue.');
+      }
+    } catch (err) {
+      setActionError('Network error while closing issue.');
+    } finally {
+      setIsSubmittingAction(false);
+    }
+  };
+
   const getPriorityBadge = (p: string) => {
     switch (p) {
       case 'CRITICAL': return 'bg-rose-500/20 text-rose-300 border-rose-500/40';
@@ -141,9 +339,21 @@ export function IssueDetailModal({
     }
   };
 
+  const getActionBadgeColor = (action: string) => {
+    switch (action) {
+      case 'INITIAL_CREATION': return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
+      case 'ASSIGN_OWNER': return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+      case 'TRANSFER_OWNERSHIP': return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+      case 'REASSIGN_DEPARTMENT': return 'bg-purple-500/20 text-purple-300 border-purple-500/30';
+      case 'ESCALATE': return 'bg-rose-500/20 text-rose-300 border-rose-500/30';
+      case 'CLOSE_ISSUE': return 'bg-slate-800 text-slate-300 border-slate-700';
+      default: return 'bg-slate-800 text-slate-300 border-slate-700';
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+      <div className="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-start justify-between shrink-0">
           <div>
@@ -170,7 +380,351 @@ export function IssueDetailModal({
 
         {/* Modal Body */}
         <div className="p-6 space-y-6 overflow-y-auto flex-1">
-          {/* Metadata Grid */}
+          
+          {/* OWNERSHIP MANAGEMENT MODULE: CURRENT RESPONSIBLE PERSONNEL */}
+          <div className="p-4 bg-slate-950 border border-amber-500/30 rounded-2xl space-y-3 relative overflow-hidden">
+            <div className="absolute top-0 right-0 px-3 py-1 bg-amber-500/10 text-amber-400 font-mono text-[10px] font-bold rounded-bl-xl border-l border-b border-amber-500/20">
+              OWNERSHIP MODULE
+            </div>
+
+            <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-amber-400" />
+              <span>Current Responsible Personnel & Escalation Matrix</span>
+            </h3>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              {/* Reporter */}
+              <div className="p-3 bg-slate-900 border border-slate-800 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Reporter</span>
+                <p className="font-bold text-slate-100 truncate">{issue.reporter ? issue.reporter.full_name : 'System Reporter'}</p>
+                <p className="text-[10px] text-slate-400 truncate">{issue.reporter ? issue.reporter.role : 'Worker'}</p>
+              </div>
+
+              {/* Current Owner */}
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider block flex items-center justify-between">
+                  <span>Current Owner</span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                </span>
+                <p className="font-bold text-emerald-200 truncate">{issue.assigned_worker ? issue.assigned_worker.full_name : 'Unassigned'}</p>
+                <p className="text-[10px] text-emerald-400/80 truncate">{issue.assigned_worker ? issue.assigned_worker.role : 'Awaiting Assignment'}</p>
+              </div>
+
+              {/* Department */}
+              <div className="p-3 bg-purple-500/10 border border-purple-500/30 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider block">Department</span>
+                <p className="font-bold text-purple-100 truncate">{issue.department}</p>
+                <p className="text-[10px] text-purple-400 truncate">Plant Sector</p>
+              </div>
+
+              {/* Supervisor */}
+              <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1">
+                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">Supervisor</span>
+                <p className="font-bold text-amber-100 truncate">{issue.assigned_supervisor ? issue.assigned_supervisor.full_name : 'Unassigned'}</p>
+                <p className="text-[10px] text-amber-400/80 truncate">{issue.assigned_supervisor ? issue.assigned_supervisor.role : 'Plant Manager'}</p>
+              </div>
+            </div>
+
+            {/* Ownership API Action Toolbar */}
+            <div className="pt-2 border-t border-slate-800/80 flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Quick Actions:</span>
+
+              {!issue.assigned_worker ? (
+                <button
+                  type="button"
+                  onClick={() => { setActiveAction('assign'); setActionError(null); }}
+                  className="px-2.5 py-1 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-lg font-bold transition flex items-center gap-1"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Assign Owner</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setActiveAction('transfer'); setActionError(null); }}
+                  className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg font-bold transition flex items-center gap-1"
+                >
+                  <ArrowRightLeft className="w-3.5 h-3.5" />
+                  <span>Transfer Ownership</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => { setActiveAction('reassign'); setActionError(null); }}
+                className="px-2.5 py-1 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40 rounded-lg font-bold transition flex items-center gap-1"
+              >
+                <Building2 className="w-3.5 h-3.5" />
+                <span>Reassign Dept</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setActiveAction('escalate'); setActionError(null); }}
+                className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 rounded-lg font-bold transition flex items-center gap-1"
+              >
+                <TrendingUp className="w-3.5 h-3.5" />
+                <span>Escalate</span>
+              </button>
+
+              {issue.status !== 'Closed' && (
+                <button
+                  type="button"
+                  onClick={() => { setActiveAction('close'); setActionError(null); }}
+                  className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg font-bold transition flex items-center gap-1 ml-auto"
+                >
+                  <Lock className="w-3.5 h-3.5" />
+                  <span>Close Issue</span>
+                </button>
+              )}
+            </div>
+
+            {/* DYNAMIC ACTION FORM PANEL */}
+            {activeAction && (
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl space-y-3 mt-3 animate-in fade-in">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <h4 className="text-xs font-bold text-amber-400 capitalize flex items-center gap-1.5">
+                    {activeAction === 'assign' && <UserCheck className="w-4 h-4" />}
+                    {activeAction === 'transfer' && <ArrowRightLeft className="w-4 h-4" />}
+                    {activeAction === 'reassign' && <Building2 className="w-4 h-4" />}
+                    {activeAction === 'escalate' && <TrendingUp className="w-4 h-4" />}
+                    {activeAction === 'close' && <Lock className="w-4 h-4" />}
+                    <span>
+                      {activeAction === 'assign' && 'Assign Primary Owner'}
+                      {activeAction === 'transfer' && 'Transfer Issue Ownership'}
+                      {activeAction === 'reassign' && 'Reassign Issue Department'}
+                      {activeAction === 'escalate' && 'Escalate Issue to Supervisor'}
+                      {activeAction === 'close' && 'Close Issue with Resolution'}
+                    </span>
+                  </h4>
+                  <button onClick={() => setActiveAction(null)} className="text-slate-400 hover:text-slate-200">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {actionError && (
+                  <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 p-2 rounded-lg">
+                    {actionError}
+                  </p>
+                )}
+
+                {/* FORM: ASSIGN OWNER */}
+                {activeAction === 'assign' && (
+                  <form onSubmit={handleAssignOwner} className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">Select Worker</label>
+                        <select
+                          value={targetWorkerId}
+                          onChange={e => setTargetWorkerId(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                          required
+                        >
+                          <option value="">-- Choose Worker --</option>
+                          {workersList.map(w => (
+                            <option key={w.id} value={w.id}>{w.full_name} ({w.role} - {w.department})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">Notes / Instructions</label>
+                        <input
+                          type="text"
+                          placeholder="Initial assignment instructions..."
+                          value={actionReason}
+                          onChange={e => setActionReason(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button type="button" onClick={() => setActiveAction(null)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold">Cancel</button>
+                      <button type="submit" disabled={isSubmittingAction} className="px-4 py-1.5 bg-emerald-500 text-slate-950 rounded-lg text-xs font-bold hover:bg-emerald-400 transition">
+                        {isSubmittingAction ? 'Assigning...' : 'Confirm Assignment'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* FORM: TRANSFER OWNERSHIP */}
+                {activeAction === 'transfer' && (
+                  <form onSubmit={handleTransferOwnership} className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">New Owner Worker</label>
+                        <select
+                          value={targetWorkerId}
+                          onChange={e => setTargetWorkerId(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                          required
+                        >
+                          <option value="">-- Choose New Owner --</option>
+                          {workersList.map(w => (
+                            <option key={w.id} value={w.id}>{w.full_name} ({w.role} - {w.department})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">Transfer Justification Reason</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Shift handover, specialization needed..."
+                          value={actionReason}
+                          onChange={e => setActionReason(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button type="button" onClick={() => setActiveAction(null)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold">Cancel</button>
+                      <button type="submit" disabled={isSubmittingAction} className="px-4 py-1.5 bg-amber-500 text-slate-950 rounded-lg text-xs font-bold hover:bg-amber-400 transition">
+                        {isSubmittingAction ? 'Transferring...' : 'Execute Transfer'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* FORM: REASSIGN DEPARTMENT */}
+                {activeAction === 'reassign' && (
+                  <form onSubmit={handleReassignDepartment} className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">New Department</label>
+                        <select
+                          value={targetDept}
+                          onChange={e => setTargetDept(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                          required
+                        >
+                          <option value="PLANT_OPS">PLANT_OPS</option>
+                          <option value="MAINTENANCE">MAINTENANCE</option>
+                          <option value="SAFETY">SAFETY</option>
+                          <option value="ELECTRICAL">ELECTRICAL</option>
+                          <option value="HVAC">HVAC</option>
+                          <option value="LOGISTICS">LOGISTICS</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">Optional New Owner</label>
+                        <select
+                          value={targetWorkerId}
+                          onChange={e => setTargetWorkerId(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                        >
+                          <option value="">Keep Existing Owner</option>
+                          {workersList.map(w => (
+                            <option key={w.id} value={w.id}>{w.full_name} ({w.department})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">Reassignment Reason</label>
+                        <input
+                          type="text"
+                          placeholder="Department handover reason..."
+                          value={actionReason}
+                          onChange={e => setActionReason(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button type="button" onClick={() => setActiveAction(null)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold">Cancel</button>
+                      <button type="submit" disabled={isSubmittingAction} className="px-4 py-1.5 bg-purple-500 text-slate-950 rounded-lg text-xs font-bold hover:bg-purple-400 transition">
+                        {isSubmittingAction ? 'Reassigning...' : 'Reassign Department'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* FORM: ESCALATE */}
+                {activeAction === 'escalate' && (
+                  <form onSubmit={handleEscalate} className="space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">Escalate to Supervisor</label>
+                        <select
+                          value={targetSupervisorId}
+                          onChange={e => setTargetSupervisorId(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                        >
+                          <option value="">-- Choose Supervisor --</option>
+                          {workersList.filter(w => w.clearance_level >= 3 || w.role.toLowerCase().includes('supervisor') || w.role.toLowerCase().includes('manager')).map(w => (
+                            <option key={w.id} value={w.id}>{w.full_name} ({w.role})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] text-slate-400 font-bold mb-1">Escalation Reason</label>
+                        <input
+                          type="text"
+                          placeholder="Urgent safety risk, unresolved blocker..."
+                          value={actionReason}
+                          onChange={e => setActionReason(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={boostPriority}
+                          onChange={e => setBoostPriority(e.target.checked)}
+                          className="accent-rose-500"
+                        />
+                        <span>Boost Priority (+1 Severity Tier: LOW -&gt; MED -&gt; HIGH -&gt; CRITICAL)</span>
+                      </label>
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button type="button" onClick={() => setActiveAction(null)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold">Cancel</button>
+                      <button type="submit" disabled={isSubmittingAction} className="px-4 py-1.5 bg-rose-500 text-slate-950 rounded-lg text-xs font-bold hover:bg-rose-400 transition">
+                        {isSubmittingAction ? 'Escalating...' : 'Escalate Issue'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* FORM: CLOSE ISSUE */}
+                {activeAction === 'close' && (
+                  <form onSubmit={handleCloseIssue} className="space-y-3">
+                    <div>
+                      <label className="block text-[10px] text-slate-400 font-bold mb-1">Technical Resolution Summary</label>
+                      <textarea
+                        rows={2}
+                        placeholder="Detailed explanation of repairs, parts replaced, or procedure followed..."
+                        value={closeResolution}
+                        onChange={e => setCloseResolution(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500 resize-none"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-slate-400 font-bold mb-1">Closing Audit Note</label>
+                      <input
+                        type="text"
+                        placeholder="Verified operational by supervisor..."
+                        value={actionReason}
+                        onChange={e => setActionReason(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2 pt-1">
+                      <button type="button" onClick={() => setActiveAction(null)} className="px-3 py-1.5 bg-slate-800 text-slate-300 rounded-lg text-xs font-bold">Cancel</button>
+                      <button type="submit" disabled={isSubmittingAction} className="px-4 py-1.5 bg-slate-100 text-slate-950 rounded-lg text-xs font-bold hover:bg-white transition">
+                        {isSubmittingAction ? 'Closing...' : 'Close & Archive Issue'}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Issue General Info */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-950/60 border border-slate-800/80 rounded-xl text-xs">
             <div>
               <span className="text-slate-400 text-[10px] uppercase font-bold block mb-0.5">Machine</span>
@@ -187,7 +741,7 @@ export function IssueDetailModal({
               </span>
             </div>
             <div>
-              <span className="text-slate-400 text-[10px] uppercase font-bold block mb-0.5">Assigned Worker</span>
+              <span className="text-slate-400 text-[10px] uppercase font-bold block mb-0.5">Assigned Owner</span>
               <span className="text-slate-200 font-medium flex items-center gap-1 truncate">
                 <User className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                 {issue.assigned_worker ? issue.assigned_worker.full_name : 'Unassigned'}
@@ -229,68 +783,23 @@ export function IssueDetailModal({
             </div>
           )}
 
-          {/* Status Change Control Bar */}
-          <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-xl space-y-3">
-            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-amber-400" />
-              <span>Change Issue Status</span>
-            </h3>
-            <form onSubmit={handleStatusUpdate} className="space-y-3">
-              <div className="flex items-center gap-2 flex-wrap">
-                {['Open', 'In Progress', 'Waiting', 'Resolved', 'Closed'].map((st) => (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => setNewStatus(st)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${
-                      (newStatus || issue.status) === st
-                        ? 'bg-amber-500 text-slate-950 border-amber-400 shadow'
-                        : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700'
-                    }`}
-                  >
-                    {st}
-                  </button>
-                ))}
-              </div>
-
-              {newStatus && newStatus !== issue.status && (
-                <div className="space-y-2 pt-2 border-t border-slate-800 animate-in fade-in">
-                  <input 
-                    type="text" 
-                    placeholder="Add audit note for this status change..."
-                    value={statusNotes}
-                    onChange={e => setStatusNotes(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
-                  />
-                  {(newStatus === 'Resolved' || newStatus === 'Closed') && (
-                    <textarea 
-                      rows={2}
-                      placeholder="Enter technical resolution summary..."
-                      value={resolutionText}
-                      onChange={e => setResolutionText(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-slate-200 focus:outline-none focus:border-amber-500 resize-none"
-                    />
-                  )}
-                  <div className="flex justify-end">
-                    <button
-                      type="submit"
-                      disabled={isUpdatingStatus}
-                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold px-4 py-2 rounded-lg transition"
-                    >
-                      {isUpdatingStatus ? 'Updating...' : `Confirm Status -> ${newStatus}`}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </form>
-          </div>
-
-          {/* Sub-Tabs: Comments, Attachments, Status History */}
+          {/* Sub-Tabs: Ownership Audit History, Comments, Attachments, Status History */}
           <div className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-2 overflow-x-auto">
+              <button
+                onClick={() => setActiveSubTab('ownership')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 ${
+                  activeSubTab === 'ownership'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+                <span>Ownership Audit Trail ({issue.ownership_history?.length || 0})</span>
+              </button>
               <button
                 onClick={() => setActiveSubTab('comments')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 ${
                   activeSubTab === 'comments'
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                     : 'text-slate-400 hover:text-slate-200'
@@ -301,7 +810,7 @@ export function IssueDetailModal({
               </button>
               <button
                 onClick={() => setActiveSubTab('attachments')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 ${
                   activeSubTab === 'attachments'
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                     : 'text-slate-400 hover:text-slate-200'
@@ -312,7 +821,7 @@ export function IssueDetailModal({
               </button>
               <button
                 onClick={() => setActiveSubTab('history')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition shrink-0 ${
                   activeSubTab === 'history'
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                     : 'text-slate-400 hover:text-slate-200'
@@ -322,6 +831,71 @@ export function IssueDetailModal({
                 <span>Status History ({issue.status_history.length})</span>
               </button>
             </div>
+
+            {/* TAB: OWNERSHIP AUDIT TRAIL */}
+            {activeSubTab === 'ownership' && (
+              <div className="space-y-3">
+                {!issue.ownership_history || issue.ownership_history.length === 0 ? (
+                  <p className="text-xs text-slate-500 text-center py-6">No ownership history records logged yet.</p>
+                ) : (
+                  issue.ownership_history.map((oh) => (
+                    <div key={oh.id} className="p-3.5 bg-slate-950 border border-slate-800 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between text-[11px] flex-wrap gap-2">
+                        <span className={`font-mono font-bold px-2 py-0.5 rounded border text-[10px] ${getActionBadgeColor(oh.action_type)}`}>
+                          {oh.action_type}
+                        </span>
+                        <span className="text-slate-500">
+                          {new Date(oh.changed_at).toLocaleString()}
+                        </span>
+                      </div>
+
+                      {/* Owner / Dept / Supervisor transitions */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-300 pt-1">
+                        {oh.new_owner && (
+                          <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                            <User className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            <span className="text-[10px] text-slate-400">Owner:</span>
+                            {oh.previous_owner && <span className="text-slate-400 line-through">{oh.previous_owner.full_name}</span>}
+                            {oh.previous_owner && <ArrowRight className="w-3 h-3 text-amber-400 shrink-0" />}
+                            <span className="font-bold text-emerald-300">{oh.new_owner.full_name}</span>
+                          </div>
+                        )}
+
+                        {oh.new_department && (
+                          <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                            <Building2 className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                            <span className="text-[10px] text-slate-400">Dept:</span>
+                            {oh.previous_department && <span className="text-slate-400 line-through">{oh.previous_department}</span>}
+                            {oh.previous_department && <ArrowRight className="w-3 h-3 text-amber-400 shrink-0" />}
+                            <span className="font-bold text-purple-300">{oh.new_department}</span>
+                          </div>
+                        )}
+
+                        {oh.new_supervisor && (
+                          <div className="flex items-center gap-1.5 bg-slate-900/80 px-2.5 py-1.5 rounded-lg border border-slate-800">
+                            <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                            <span className="text-[10px] text-slate-400">Supervisor:</span>
+                            {oh.previous_supervisor && <span className="text-slate-400 line-through">{oh.previous_supervisor.full_name}</span>}
+                            {oh.previous_supervisor && <ArrowRight className="w-3 h-3 text-amber-400 shrink-0" />}
+                            <span className="font-bold text-amber-300">{oh.new_supervisor.full_name}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {oh.reason_notes && (
+                        <p className="text-xs text-slate-300 bg-slate-900/50 p-2 rounded-lg border border-slate-800/60">
+                          <strong className="text-amber-400">Notes:</strong> {oh.reason_notes}
+                        </p>
+                      )}
+
+                      <div className="text-[10px] text-slate-500 pt-0.5 flex justify-end">
+                        <span>Changed by: <strong className="text-slate-400">{oh.changed_by ? oh.changed_by.full_name : 'System Administrator'}</strong></span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
 
             {/* TAB 1: COMMENTS */}
             {activeSubTab === 'comments' && (

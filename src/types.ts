@@ -162,6 +162,26 @@ export interface IssueStatusHistory {
   changed_by?: Worker;
 }
 
+export interface IssueOwnershipHistory {
+  id: number;
+  issue_id: number;
+  action_type: 'INITIAL_CREATION' | 'ASSIGN_OWNER' | 'TRANSFER_OWNERSHIP' | 'REASSIGN_DEPARTMENT' | 'ESCALATE' | 'CLOSE_ISSUE';
+  previous_owner_id?: number;
+  new_owner_id?: number;
+  previous_supervisor_id?: number;
+  new_supervisor_id?: number;
+  previous_department?: string;
+  new_department?: string;
+  changed_by_id?: number;
+  reason_notes?: string;
+  changed_at: string;
+  previous_owner?: Worker;
+  new_owner?: Worker;
+  previous_supervisor?: Worker;
+  new_supervisor?: Worker;
+  changed_by?: Worker;
+}
+
 export interface Issue {
   id: number;
   issue_code: string;
@@ -186,5 +206,6 @@ export interface Issue {
   comments: IssueComment[];
   attachments: IssueAttachment[];
   status_history: IssueStatusHistory[];
+  ownership_history: IssueOwnershipHistory[];
 }
 

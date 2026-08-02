@@ -30,6 +30,7 @@ class Issue(BaseModel):
     comments = relationship("IssueComment", back_populates="issue", cascade="all, delete-orphan")
     attachments = relationship("IssueAttachment", back_populates="issue", cascade="all, delete-orphan")
     status_history = relationship("IssueStatusHistory", back_populates="issue", cascade="all, delete-orphan")
+    ownership_history = relationship("IssueOwnershipHistory", back_populates="issue", cascade="all, delete-orphan", order_by="desc(IssueOwnershipHistory.changed_at)")
 
 
 class IssueComment(BaseModel):
@@ -68,3 +69,30 @@ class IssueStatusHistory(BaseModel):
 
     issue = relationship("Issue", back_populates="status_history")
     changed_by = relationship("Worker")
+
+
+class IssueOwnershipHistory(BaseModel):
+    __tablename__ = "issue_ownership_history"
+
+    issue_id = Column(Integer, ForeignKey("issues.id", ondelete="CASCADE"), nullable=False)
+    action_type = Column(String(50), nullable=False)  # INITIAL_CREATION, ASSIGN_OWNER, TRANSFER_OWNERSHIP, REASSIGN_DEPARTMENT, ESCALATE, CLOSE_ISSUE
+    
+    previous_owner_id = Column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    new_owner_id = Column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    
+    previous_supervisor_id = Column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    new_supervisor_id = Column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    
+    previous_department = Column(String(100), nullable=True)
+    new_department = Column(String(100), nullable=True)
+    
+    changed_by_id = Column(Integer, ForeignKey("workers.id", ondelete="SET NULL"), nullable=True)
+    reason_notes = Column(Text, nullable=True)
+    changed_at = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+
+    issue = relationship("Issue", back_populates="ownership_history")
+    previous_owner = relationship("Worker", foreign_keys=[previous_owner_id])
+    new_owner = relationship("Worker", foreign_keys=[new_owner_id])
+    previous_supervisor = relationship("Worker", foreign_keys=[previous_supervisor_id])
+    new_supervisor = relationship("Worker", foreign_keys=[new_supervisor_id])
+    changed_by = relationship("Worker", foreign_keys=[changed_by_id])

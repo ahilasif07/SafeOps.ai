@@ -1,10 +1,23 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from app.repositories.issue_repository import issue_repository
-from app.schemas.issue import IssueCreate, IssueUpdate, IssueStatusUpdate
+from app.schemas.issue import IssueCreate, IssueUpdate, IssueStatusUpdate, DuplicateCheckRequest
 from app.models.issue import Issue, IssueComment, IssueAttachment
+from app.services.duplicate_detector import duplicate_engine
 
 class IssueService:
+    def check_duplicates(self, db: Session, req: DuplicateCheckRequest) -> Dict[str, Any]:
+        # Fetch current open or in-progress issues
+        all_issues = issue_repository.get_multi(db, limit=500)
+        open_issues = [i for i in all_issues if i.status in ["Open", "In Progress", "Waiting"]]
+        return duplicate_engine.check_duplicate(
+            new_title=req.title,
+            new_description=req.description,
+            new_machine_id=req.machine_id,
+            open_issues=open_issues,
+            threshold=req.threshold
+        )
+
     def get_issue(self, db: Session, issue_id: int) -> Optional[Issue]:
         return issue_repository.get(db, issue_id)
 
@@ -63,5 +76,43 @@ class IssueService:
         if not issue:
             return None
         return issue_repository.add_attachment(db, issue_id, file_name, file_url, file_type)
+
+    def assign_owner(self, db: Session, issue_id: int, assigned_worker_id: int, changed_by_id: Optional[int] = None, notes: Optional[str] = None) -> Optional[Issue]:
+        issue = issue_repository.get(db, issue_id)
+        if not issue:
+            return None
+        return issue_repository.assign_owner(db, issue, assigned_worker_id, changed_by_id, notes)
+
+    def transfer_ownership(self, db: Session, issue_id: int, new_owner_id: int, reason: str, changed_by_id: Optional[int] = None) -> Optional[Issue]:
+        issue = issue_repository.get(db, issue_id)
+        if not issue:
+            return None
+        return issue_repository.transfer_ownership(db, issue, new_owner_id, reason, changed_by_id)
+
+    def reassign_department(
+        self, db: Session, issue_id: int, new_department: str, reason: str, new_owner_id: Optional[int] = None, new_supervisor_id: Optional[int] = None, changed_by_id: Optional[int] = None
+    ) -> Optional[Issue]:
+        issue = issue_repository.get(db, issue_id)
+        if not issue:
+            return None
+        return issue_repository.reassign_department(
+            db, issue, new_department=new_department, reason=reason, new_owner_id=new_owner_id, new_supervisor_id=new_supervisor_id, changed_by_id=changed_by_id
+        )
+
+    def escalate(
+        self, db: Session, issue_id: int, reason: str, new_supervisor_id: Optional[int] = None, new_owner_id: Optional[int] = None, changed_by_id: Optional[int] = None, boost_priority: bool = True
+    ) -> Optional[Issue]:
+        issue = issue_repository.get(db, issue_id)
+        if not issue:
+            return None
+        return issue_repository.escalate(
+            db, issue, reason=reason, new_supervisor_id=new_supervisor_id, new_owner_id=new_owner_id, changed_by_id=changed_by_id, boost_priority=boost_priority
+        )
+
+    def close_issue(self, db: Session, issue_id: int, resolution: str, changed_by_id: Optional[int] = None, notes: Optional[str] = None) -> Optional[Issue]:
+        issue = issue_repository.get(db, issue_id)
+        if not issue:
+            return None
+        return issue_repository.close_issue(db, issue, resolution=resolution, changed_by_id=changed_by_id, notes=notes)
 
 issue_service = IssueService()

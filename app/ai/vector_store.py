@@ -7,10 +7,19 @@ class InMemoryVectorStore:
         self.documents: List[Dict[str, Any]] = []
 
     def _dummy_embed(self, text: str) -> List[float]:
-        # Simple deterministic hash vector for text similarity without external heavy DL dependencies
-        vec = [0.0] * 32
-        for i, char in enumerate(text.lower()):
-            vec[ord(char) % 32] += 1.0
+        # Enhanced 64-dim word-level hash embedding for accurate semantic & keyword RAG retrieval
+        dim = 64
+        vec = [0.0] * dim
+        words = text.lower().split()
+        for word in words:
+            # Hash full word
+            h = sum(ord(c) * (i + 1) for i, c in enumerate(word))
+            idx = h % dim
+            vec[idx] += 1.5
+            # Hash character bigrams
+            for i in range(len(word) - 1):
+                bigram_h = (ord(word[i]) * 31 + ord(word[i+1]))
+                vec[bigram_h % dim] += 0.5
         norm = math.sqrt(sum(x*x for x in vec)) or 1.0
         return [x / norm for x in vec]
 
@@ -44,3 +53,4 @@ class InMemoryVectorStore:
         return scored[:top_k]
 
 vector_store = InMemoryVectorStore()
+
