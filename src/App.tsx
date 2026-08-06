@@ -35,7 +35,9 @@ import {
   Paperclip,
   Building2,
   Calendar,
-  Filter
+  Filter,
+  Sliders,
+  BookOpen
 } from 'lucide-react';
 import { Worker, Machine, Procedure, Task, Incident, SupervisorApproval, SensorReading, SafetyEvalResponse, Issue } from './types';
 import { CustomSelect } from './components/CustomSelect';
@@ -43,6 +45,8 @@ import { SopModal } from './components/SopModal';
 import { SopDetailModal } from './components/SopDetailModal';
 import { MachineModal } from './components/MachineModal';
 import { WorkerModal } from './components/WorkerModal';
+import { SensorRangeModal } from './components/SensorRangeModal';
+import { MachineSopModal } from './components/MachineSopModal';
 import { IssueCreateModal } from './components/IssueCreateModal';
 import { IssueDetailModal } from './components/IssueDetailModal';
 
@@ -59,6 +63,9 @@ export default function App() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [selectedWorkerId, setSelectedWorkerId] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
+
+  // Worker certifications keyed by worker id
+  const [workerCerts, setWorkerCerts] = useState<Record<number, any[]>>({});
   
   // Issue Tracker State
   const [showIssueCreateModal, setShowIssueCreateModal] = useState(false);
@@ -79,6 +86,10 @@ export default function App() {
   // Machine & Worker Creation Modals
   const [showMachineModal, setShowMachineModal] = useState(false);
   const [showWorkerModal, setShowWorkerModal] = useState(false);
+  const [showSensorRangeModal, setShowSensorRangeModal] = useState(false);
+  const [selectedMachineForRanges, setSelectedMachineForRanges] = useState<Machine | null>(null);
+  const [showMachineSopModal, setShowMachineSopModal] = useState(false);
+  const [selectedMachineForSops, setSelectedMachineForSops] = useState<Machine | null>(null);
   
   // AI SOP Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -91,12 +102,30 @@ export default function App() {
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [newTaskMachineId, setNewTaskMachineId] = useState<number>(1);
   const [newTaskProcedureId, setNewTaskProcedureId] = useState<number>(1);
+  const [machineAssignedSops, setMachineAssignedSops] = useState<Procedure[]>([]);
   const [evalResult, setEvalResult] = useState<SafetyEvalResponse | null>(null);
   const [evaluating, setEvaluating] = useState(false);
+
+  useEffect(() => {
+    if (newTaskMachineId) {
+      fetch(`/api/v1/machines/${newTaskMachineId}/sops/`)
+        .then(res => res.ok ? res.json() : [])
+        .then(data => {
+          if (Array.isArray(data)) {
+            setMachineAssignedSops(data);
+            if (data.length > 0) {
+              setNewTaskProcedureId(data[0].id);
+            }
+          }
+        })
+        .catch(err => console.error('Failed to load machine assigned SOPs:', err));
+    }
+  }, [newTaskMachineId]);
   
-  // Active Telemetry State
+  // Active Telemetry State — live sensor readings fetched from API per machine
   const [activeMachineTelemetry, setActiveMachineTelemetry] = useState<Record<number, SensorReading[]>>({});
   const [simulating, setSimulating] = useState<number | null>(null);
+  const [resetting, setResetting] = useState<number | null>(null);
 
   useEffect(() => {
     fetchInitialData();
@@ -152,6 +181,43 @@ export default function App() {
       
       await fetchIssues();
 
+      // Fetch live sensor readings for each machine
+      const allMachines = Array.isArray(mRes) ? mRes : [];
+      const sensorPromises = allMachines.map((m: Machine) =>
+        fetch(`/api/v1/sensors?machine_id=${m.id}`)
+          .then(r => r.ok ? r.json() : [])
+          .then(data => ({ machineId: m.id, data: Array.isArray(data) ? data : [] }))
+          .catch(() => ({ machineId: m.id, data: [] }))
+      );
+      const sensorResults = await Promise.all(sensorPromises);
+      const telemetryMap: Record<number, SensorReading[]> = {};
+      for (const { machineId, data } of sensorResults) {
+        // Keep only the latest reading per sensor type
+        const latestMap: Record<string, SensorReading> = {};
+        for (const r of data) {
+          const st = String(r.sensor_type).toUpperCase();
+          if (!latestMap[st] || new Date(r.timestamp) >= new Date(latestMap[st].timestamp)) {
+            latestMap[st] = r;
+          }
+        }
+        telemetryMap[machineId] = Object.values(latestMap);
+      }
+      setActiveMachineTelemetry(telemetryMap);
+
+      // Fetch certifications for all workers
+      const certPromises = (Array.isArray(wRes) ? wRes : []).map((w: Worker) =>
+        fetch(`/api/v1/certifications/worker/${w.id}`)
+          .then(r => r.ok ? r.json() : [])
+          .then(data => ({ workerId: w.id, certs: Array.isArray(data) ? data : [] }))
+          .catch(() => ({ workerId: w.id, certs: [] }))
+      );
+      const certResults = await Promise.all(certPromises);
+      const certsMap: Record<number, any[]> = {};
+      for (const { workerId, certs } of certResults) {
+        certsMap[workerId] = certs;
+      }
+      setWorkerCerts(certsMap);
+
       if (Array.isArray(wRes) && wRes.length > 0) {
         setSelectedWorkerId(wRes[0].id);
       }
@@ -193,8 +259,9 @@ export default function App() {
   };
 
   const handleCreateTask = async () => {
-    if (!newTaskTitle) return;
+    if (!newTaskTitle || !evalResult) return;
     try {
+      const isBlocked = !evalResult.is_permitted;
       const res = await fetch('/api/v1/tasks/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -204,7 +271,13 @@ export default function App() {
           worker_id: selectedWorkerId,
           machine_id: newTaskMachineId,
           procedure_id: newTaskProcedureId,
-          priority: 'HIGH'
+          priority: 'HIGH',
+          // Pass evaluation results through to the task record
+          composite_risk_score: evalResult.composite_risk_score,
+          risk_level: evalResult.risk_level,
+          is_blocked: isBlocked,
+          blocking_reasons: evalResult.blocking_reasons,
+          send_for_approval: isBlocked
         })
       });
       if (res.ok) {
@@ -238,12 +311,35 @@ export default function App() {
     try {
       const res = await fetch(`/api/v1/sensors/simulate/${machineId}?force_anomaly=${forceAnomaly}`, { method: 'POST' });
       const data = await res.json();
-      setActiveMachineTelemetry(prev => ({ ...prev, [machineId]: data }));
+      // Merge new readings into telemetry map, keeping latest per sensor type
+      setActiveMachineTelemetry(prev => {
+        const existing = prev[machineId] || [];
+        const merged: Record<string, SensorReading> = {};
+        for (const r of [...existing, ...(Array.isArray(data) ? data : [])]) {
+          const st = String(r.sensor_type).toUpperCase();
+          if (!merged[st] || new Date(r.timestamp) >= new Date(merged[st].timestamp)) {
+            merged[st] = r;
+          }
+        }
+        return { ...prev, [machineId]: Object.values(merged) };
+      });
       fetchInitialData();
     } catch (err) {
       console.error("Simulation failed:", err);
     } finally {
       setSimulating(null);
+    }
+  };
+
+  const handleResetSensors = async (machineId: number) => {
+    setResetting(machineId);
+    try {
+      await fetch(`/api/v1/sensors/reset/${machineId}`, { method: 'DELETE' });
+      setActiveMachineTelemetry(prev => ({ ...prev, [machineId]: [] }));
+    } catch (err) {
+      console.error("Sensor reset failed:", err);
+    } finally {
+      setResetting(null);
     }
   };
 
@@ -445,16 +541,26 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
-                      <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
-                        <span>Overall Risk Level</span>
-                        <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                      </div>
-                      <div className="mt-3 flex items-baseline justify-between">
-                        <span className="text-3xl font-black text-emerald-400">LOW</span>
-                        <span className="text-xs text-slate-400">Composite: 18.5 / 100</span>
-                      </div>
-                    </div>
+                    {(() => {
+                      const avgScore = tasks.length > 0
+                        ? Math.round(tasks.reduce((sum, t) => sum + (t.composite_risk_score || 0), 0) / tasks.length)
+                        : 0;
+                      const dynLevel = avgScore >= 80 ? 'CRITICAL' : avgScore >= 60 ? 'HIGH' : avgScore >= 35 ? 'MEDIUM' : 'LOW';
+                      const levelColor = dynLevel === 'CRITICAL' ? 'text-rose-400' : dynLevel === 'HIGH' ? 'text-amber-400' : dynLevel === 'MEDIUM' ? 'text-yellow-400' : 'text-emerald-400';
+                      const iconColor = dynLevel === 'CRITICAL' ? 'text-rose-400' : dynLevel === 'HIGH' ? 'text-amber-400' : 'text-emerald-400';
+                      return (
+                        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
+                          <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
+                            <span>Overall Risk Level</span>
+                            <ShieldCheck className={`w-4 h-4 ${iconColor}`} />
+                          </div>
+                          <div className="mt-3 flex items-baseline justify-between">
+                            <span className={`text-3xl font-black ${levelColor}`}>{dynLevel}</span>
+                            <span className="text-xs text-slate-400">Composite: {avgScore} / 100</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col justify-between">
                       <div className="flex items-center justify-between text-slate-400 text-xs font-semibold uppercase tracking-wider">
@@ -532,21 +638,70 @@ export default function App() {
                             <span className="font-semibold text-slate-200">{m.requires_loto ? 'YES (Mandatory)' : 'NO'}</span>
                           </div>
 
-                          <div className="flex items-center gap-2 pt-1">
-                            <button
-                              onClick={() => handleSimulateSensor(m.id, false)}
-                              disabled={simulating === m.id}
-                              className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium py-2 rounded-lg transition"
-                            >
-                              Normal Ping
-                            </button>
-                            <button
-                              onClick={() => handleSimulateSensor(m.id, true)}
-                              disabled={simulating === m.id}
-                              className="flex-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-bold py-2 rounded-lg transition"
-                            >
-                              Simulate Anomaly
-                            </button>
+                          <div className="flex flex-col gap-2 pt-1">
+                            {/* Live Sensor Readings */}
+                            {activeMachineTelemetry[m.id] && activeMachineTelemetry[m.id].length > 0 && (
+                              <div className="grid grid-cols-2 gap-1.5 text-[10px] font-mono">
+                                {activeMachineTelemetry[m.id].map(sensor => (
+                                  <div key={sensor.id} className={`px-2 py-1.5 rounded-lg border flex justify-between items-center ${
+                                    sensor.is_anomaly
+                                      ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+                                      : 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300'
+                                  }`}>
+                                    <span className="text-slate-400">{sensor.sensor_type.replace('_', ' ')}</span>
+                                    <span className="font-bold">{sensor.value}{sensor.unit === 'ppm' ? ' ppm' : sensor.unit === 'mm/s' ? ' mm/s' : `°${sensor.unit}`}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => {
+                                  setSelectedMachineForRanges(m);
+                                  setShowSensorRangeModal(true);
+                                }}
+                                className="flex-1 bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold py-2 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 border border-slate-700/60"
+                              >
+                                <Sliders className="w-3.5 h-3.5" />
+                                <span>Sensor Ranges</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedMachineForSops(m);
+                                  setShowMachineSopModal(true);
+                                }}
+                                className="flex-1 bg-slate-800 hover:bg-slate-700 text-amber-400 text-xs font-semibold py-2 px-2.5 rounded-lg transition flex items-center justify-center gap-1.5 border border-slate-700/60"
+                              >
+                                <BookOpen className="w-3.5 h-3.5" />
+                                <span>Assigned SOPs</span>
+                              </button>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleSimulateSensor(m.id, false)}
+                                disabled={simulating === m.id || resetting === m.id}
+                                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium py-2 rounded-lg transition"
+                              >
+                                Normal Ping
+                              </button>
+                              <button
+                                onClick={() => handleSimulateSensor(m.id, true)}
+                                disabled={simulating === m.id || resetting === m.id}
+                                className="flex-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-bold py-2 rounded-lg transition"
+                              >
+                                Simulate Anomaly
+                              </button>
+                              <button
+                                onClick={() => handleResetSensors(m.id)}
+                                disabled={simulating === m.id || resetting === m.id}
+                                title="Clear all sensor readings and reset anomaly state"
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-emerald-400 text-xs font-medium py-2 px-2 rounded-lg transition border border-slate-700/60"
+                              >
+                                <RefreshCw className={`w-3.5 h-3.5 ${resetting === m.id ? 'animate-spin' : ''}`} />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -682,7 +837,7 @@ export default function App() {
                         </div>
 
                         {/* Telemetry Output Box if available */}
-                        {activeMachineTelemetry[m.id] && (
+                        {activeMachineTelemetry[m.id] && activeMachineTelemetry[m.id].length > 0 && (
                           <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
                             <span className="text-xs text-amber-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
                               <Radio className="w-3.5 h-3.5" />
@@ -702,18 +857,27 @@ export default function App() {
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleSimulateSensor(m.id, false)}
-                            disabled={simulating === m.id}
+                            disabled={simulating === m.id || resetting === m.id}
                             className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold py-2.5 rounded-xl transition"
                           >
                             Ping Normal Telemetry
                           </button>
                           <button
                             onClick={() => handleSimulateSensor(m.id, true)}
-                            disabled={simulating === m.id}
+                            disabled={simulating === m.id || resetting === m.id}
                             className="flex-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-1.5"
                           >
                             <AlertTriangle className="w-3.5 h-3.5" />
                             <span>Inject Anomaly</span>
+                          </button>
+                          <button
+                            onClick={() => handleResetSensors(m.id)}
+                            disabled={simulating === m.id || resetting === m.id}
+                            title="Clear all sensor readings and reset anomaly state"
+                            className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold py-2.5 px-3 rounded-xl transition flex items-center gap-1.5"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${resetting === m.id ? 'animate-spin' : ''}`} />
+                            <span>Reset</span>
                           </button>
                         </div>
                       </div>
@@ -948,22 +1112,41 @@ export default function App() {
                           </span>
                         </div>
 
-                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                          <div className="text-xs text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
-                            <Award className="w-4 h-4 text-amber-400" />
-                            <span>Safety Certifications & Training Records</span>
-                          </div>
-                          <div className="space-y-1.5 text-xs">
-                            <div className="flex justify-between p-2 rounded bg-slate-900 text-slate-300">
-                              <span>CERT-ELEC-01: High-Voltage Electrical</span>
-                              <span className="text-emerald-400 font-bold">VALID (Exp 2028)</span>
+                        {(() => {
+                          const certs = workerCerts[w.id] || [];
+                          return (
+                            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
+                              <div className="text-xs text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5">
+                                <Award className="w-4 h-4 text-amber-400" />
+                                <span>Safety Certifications & Training Records</span>
+                                <span className="ml-auto bg-slate-800 text-slate-400 text-[10px] px-2 py-0.5 rounded-full">{certs.length} on file</span>
+                              </div>
+                              {certs.length === 0 ? (
+                                <div className="flex items-center gap-2 text-xs bg-rose-500/10 border border-rose-500/20 text-rose-400 px-3 py-2 rounded-lg">
+                                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                                  <span className="font-semibold">No certifications on file — worker may be restricted from high-risk procedures</span>
+                                </div>
+                              ) : (
+                                <div className="space-y-1.5 text-xs">
+                                  {certs.map((rec: any) => {
+                                    const isValid = rec.is_valid !== false;
+                                    const certName = rec.certification?.name || rec.certification?.code || 'Unknown Certification';
+                                    const certCode = rec.certification?.code || '';
+                                    const expiry = rec.expiry_date ? new Date(rec.expiry_date).getFullYear() : '?';
+                                    return (
+                                      <div key={rec.id} className="flex justify-between p-2 rounded bg-slate-900 text-slate-300">
+                                        <span>{certCode}: {certName}</span>
+                                        <span className={`font-bold ${isValid ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                          {isValid ? `VALID (Exp ${expiry})` : 'EXPIRED'}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
-                            <div className="flex justify-between p-2 rounded bg-slate-900 text-slate-300">
-                              <span>CERT-LOTO-01: Lock-Out / Tag-Out Authorized</span>
-                              <span className="text-emerald-400 font-bold">VALID (Exp 2027)</span>
-                            </div>
-                          </div>
-                        </div>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
@@ -984,40 +1167,80 @@ export default function App() {
                         No pending supervisor approval requests.
                       </div>
                     ) : (
-                      approvals.map(app => (
-                        <div key={app.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-mono text-amber-400 font-bold">Approval #{app.id}</span>
-                              <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
-                                app.status === 'PENDING' ? 'bg-amber-500/20 text-amber-400 animate-pulse' :
-                                app.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
-                              }`}>
-                                {app.status}
-                              </span>
-                            </div>
-                            <h3 className="text-lg font-bold text-slate-100">High-Risk Task Order #{app.task_id}</h3>
-                            <p className="text-xs text-slate-400">Requested on {new Date(app.requested_at).toLocaleString()}</p>
-                          </div>
+                      approvals.map(app => {
+                        const relatedTask = tasks.find(t => t.id === app.task_id);
+                        return (
+                          <div key={app.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex flex-col gap-4">
+                            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                              <div className="space-y-1 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-mono text-amber-400 font-bold">Approval #{app.id}</span>
+                                  <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                                    app.status === 'PENDING' ? 'bg-amber-500/20 text-amber-400 animate-pulse' :
+                                    app.status === 'APPROVED' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'
+                                  }`}>
+                                    {app.status}
+                                  </span>
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-100">
+                                  {relatedTask ? relatedTask.title : `High-Risk Task Order #${app.task_id}`}
+                                </h3>
+                                <p className="text-xs text-slate-400">Requested on {new Date(app.requested_at).toLocaleString()}</p>
+                              </div>
 
-                          {app.status === 'PENDING' && (
-                            <div className="flex gap-2 w-full md:w-auto">
-                              <button
-                                onClick={() => handleSupervisorDecision(app.id, 'APPROVED')}
-                                className="flex-1 md:flex-initial bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-sm transition"
-                              >
-                                Approve Permit
-                              </button>
-                              <button
-                                onClick={() => handleSupervisorDecision(app.id, 'REJECTED')}
-                                className="flex-1 md:flex-initial bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-bold px-5 py-2.5 rounded-xl text-sm transition"
-                              >
-                                Reject Task
-                              </button>
+                              {app.status === 'PENDING' && (
+                                <div className="flex gap-2 w-full md:w-auto">
+                                  <button
+                                    onClick={() => handleSupervisorDecision(app.id, 'APPROVED')}
+                                    className="flex-1 md:flex-initial bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-sm transition"
+                                  >
+                                    Approve Permit
+                                  </button>
+                                  <button
+                                    onClick={() => handleSupervisorDecision(app.id, 'REJECTED')}
+                                    className="flex-1 md:flex-initial bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-bold px-5 py-2.5 rounded-xl text-sm transition"
+                                  >
+                                    Reject Task
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                      ))
+
+                            {/* Task context details */}
+                            {relatedTask && (
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs bg-slate-950 p-3 rounded-xl border border-slate-800">
+                                <div>
+                                  <span className="text-slate-500 block mb-0.5 uppercase tracking-wide text-[10px] font-bold">Worker</span>
+                                  <span className="text-slate-200 font-medium">{relatedTask.worker?.full_name || `Worker #${relatedTask.worker_id}`}</span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-500 block mb-0.5 uppercase tracking-wide text-[10px] font-bold">Machine</span>
+                                  <span className="text-slate-200 font-medium">{relatedTask.machine?.name || `Machine #${relatedTask.machine_id}`}</span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-500 block mb-0.5 uppercase tracking-wide text-[10px] font-bold">Procedure</span>
+                                  <span className="text-slate-200 font-medium">{relatedTask.procedure?.title || `SOP #${relatedTask.procedure_id}`}</span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-500 block mb-0.5 uppercase tracking-wide text-[10px] font-bold">Risk Score</span>
+                                  <span className={`font-bold ${
+                                    relatedTask.risk_level === 'CRITICAL' ? 'text-rose-400' :
+                                    relatedTask.risk_level === 'HIGH' ? 'text-amber-400' : 'text-yellow-400'
+                                  }`}>{relatedTask.composite_risk_score}/100 ({relatedTask.risk_level})</span>
+                                </div>
+                                {relatedTask.blocking_reasons && relatedTask.blocking_reasons.length > 0 && (
+                                  <div className="col-span-2 md:col-span-4">
+                                    <span className="text-slate-500 block mb-1 uppercase tracking-wide text-[10px] font-bold">Blocking Reasons</span>
+                                    <ul className="list-disc list-inside text-rose-300 space-y-0.5">
+                                      {relatedTask.blocking_reasons.map((r: string, i: number) => <li key={i}>{r}</li>)}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -1338,12 +1561,20 @@ export default function App() {
                   <CustomSelect
                     value={newTaskProcedureId}
                     onChange={(val) => setNewTaskProcedureId(Number(val))}
-                    options={procedures.map(p => ({
-                      value: p.id,
-                      label: p.title,
-                      sublabel: `Req. Level ${p.required_clearance_level}+`,
-                      badge: p.procedure_code
-                    }))}
+                    options={[
+                      ...machineAssignedSops.map(p => ({
+                        value: p.id,
+                        label: p.title,
+                        sublabel: `Req. Level ${p.required_clearance_level}+ (Assigned SOP)`,
+                        badge: `${p.procedure_code} ★`
+                      })),
+                      ...procedures.filter(p => !machineAssignedSops.some(m => m.id === p.id)).map(p => ({
+                        value: p.id,
+                        label: p.title,
+                        sublabel: `Req. Level ${p.required_clearance_level}+`,
+                        badge: p.procedure_code
+                      }))
+                    ]}
                     placeholder="Select procedure..."
                   />
                 </div>
@@ -1369,11 +1600,40 @@ export default function App() {
                 }`}>
                   <div className="flex items-center justify-between font-bold text-sm">
                     <div className="flex items-center gap-2">
-                      {evalResult.is_permitted ? <ShieldCheck className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
+                      {evalResult.is_permitted ? <ShieldCheck className="w-5 h-5 text-emerald-400" /> : <ShieldAlert className="w-5 h-5 text-rose-400" />}
                       <span>Safety Verdict: {evalResult.is_permitted ? 'PERMITTED TO DISPATCH' : 'TASK BLOCKED'}</span>
                     </div>
                     <span className="text-xs px-2.5 py-1 rounded bg-slate-950 font-mono">Risk: {evalResult.composite_risk_score}/100</span>
                   </div>
+
+                  {/* Evaluation Breakdown Checklist */}
+                  {evalResult.evaluation_breakdown && (
+                    <div className="bg-slate-950/80 p-3 rounded-lg border border-slate-800 space-y-1.5 text-xs">
+                      <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px] block mb-1">Safety Criteria Checklist</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 font-medium">
+                        <div className={`flex items-center gap-1.5 ${evalResult.evaluation_breakdown.clearance_check ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          <span>{evalResult.evaluation_breakdown.clearance_check ? '✓' : '✗'}</span>
+                          <span>Clearance Level Match</span>
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${evalResult.evaluation_breakdown.certification_check ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          <span>{evalResult.evaluation_breakdown.certification_check ? '✓' : '✗'}</span>
+                          <span>Active Certifications</span>
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${evalResult.evaluation_breakdown.machine_status_check ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          <span>{evalResult.evaluation_breakdown.machine_status_check ? '✓' : '✗'}</span>
+                          <span>Machine Operational</span>
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${evalResult.evaluation_breakdown.sensor_anomaly_check ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          <span>{evalResult.evaluation_breakdown.sensor_anomaly_check ? '✓' : '✗'}</span>
+                          <span>Sensor Telemetry Baseline</span>
+                        </div>
+                        <div className={`flex items-center gap-1.5 ${evalResult.evaluation_breakdown.loto_compliance ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          <span>{evalResult.evaluation_breakdown.loto_compliance ? '✓' : '✗'}</span>
+                          <span>LOTO Qualification</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {evalResult.blocking_reasons?.length > 0 && (
                     <div className="text-xs space-y-1">
@@ -1407,10 +1667,20 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleCreateTask}
-                disabled={!newTaskTitle}
-                className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-6 py-2 rounded-xl text-sm shadow-lg shadow-amber-500/20"
+                disabled={!newTaskTitle || !evalResult}
+                className={`font-bold px-6 py-2 rounded-xl text-sm transition shadow-lg ${
+                  !newTaskTitle || !evalResult
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed shadow-none'
+                    : evalResult.is_permitted
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/20'
+                    : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
+                }`}
               >
-                Submit Work Order
+                {!evalResult
+                  ? 'Run Evaluation First'
+                  : evalResult.is_permitted
+                  ? 'Submit Work Order'
+                  : 'Send for Supervisor Approval'}
               </button>
             </div>
           </div>
@@ -1473,6 +1743,26 @@ export default function App() {
         onClose={() => setSelectedIssueForDetail(null)}
         onRefresh={fetchIssues}
         currentWorker={currentWorker}
+      />
+
+      {/* Sensor Range Configuration Modal */}
+      <SensorRangeModal
+        isOpen={showSensorRangeModal}
+        onClose={() => {
+          setShowSensorRangeModal(false);
+          setSelectedMachineForRanges(null);
+        }}
+        machine={selectedMachineForRanges}
+      />
+
+      {/* Machine SOP Assignment Modal */}
+      <MachineSopModal
+        isOpen={showMachineSopModal}
+        onClose={() => {
+          setShowMachineSopModal(false);
+          setSelectedMachineForSops(null);
+        }}
+        machine={selectedMachineForSops}
       />
     </div>
   );

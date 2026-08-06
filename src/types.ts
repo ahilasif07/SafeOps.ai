@@ -82,6 +82,20 @@ export interface TrainingRecord {
   certification?: Certification;
 }
 
+export interface Department {
+  id: number;
+  name: string;
+  code: string;
+  description?: string;
+}
+
+export interface Role {
+  id: number;
+  name: string;
+  department?: string;
+  clearance_level?: number;
+}
+
 export interface Incident {
   id: number;
   incident_code: string;
@@ -115,6 +129,16 @@ export interface SensorReading {
   is_anomaly: boolean;
   timestamp: string;
 }
+
+export interface SensorRange {
+  id?: number;
+  machine_id: number;
+  sensor_type: string;
+  min_value: number;
+  max_value: number;
+}
+
+export type MachineSensorRanges = Record<string, { min: number; max: number; min_value?: number; max_value?: number }>;
 
 export interface SafetyEvalResponse {
   is_permitted: boolean;
